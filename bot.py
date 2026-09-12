@@ -1,28 +1,59 @@
 import os
+import http.server
+import socketserver
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-# Servidor dummy para manter o Render Web Service ativo gratuitamente
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running 24/7!")
-
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
-
-# Inicia o servidor HTTP em uma thread paralela
-threading.Thread(target=run_dummy_server, daemon=True).start()
-
 import ccxt
 import pandas as pd
 import time
 import json
+import requests
 from datetime import datetime
 
+# ==========================================
+# CONFIGURAÇÕES DO TELEGRAM
+# ==========================================
+TELEGRAM_TOKEN = "8630684870:AAHc6IdnwB4EiVs18oC_5NqREltWS-N1w88"
+TELEGRAM_CHAT_ID = "1402944096"
+
+def send_telegram_message(message):
+    """Envia uma mensagem de notificação para o Telegram."""
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"Erro ao enviar mensagem no Telegram: {e}", flush=True)
+
+# ==========================================
+# SERVIDOR HTTP DUMMY PARA O RENDER
+# ==========================================
+class SimpleHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Bot de Trading BTC rodando 24/7!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = socketserver.TCPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_dummy_server, daemon=True).start()
+
+# ==========================================
+# CONFIGURAÇÃO DA EXCHANGE E INDICADORES
+# ==========================================
 exchange = ccxt.kucoin({'enableRateLimit': True})
 symbol = 'BTC/USDT'
 timeframe = '1h'
@@ -37,12 +68,7 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             return json.load(f)
-    return {
-        'capital_usdt': 1000.0,
-        'crypto_balance': 0.0,
-        'in_position': False,
-        'entry_price': 0.0
-    }
+    return {'position': None, 'usdt': 1000.0, 'btc': 0.0}
 
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
@@ -50,69 +76,65 @@ def save_state(state):
 
 state = load_state()
 
-def fetch_candle_data():
-    candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=250)
-    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
+print("=== BOT DE TRADING QUANTITATIVO ATIVO | BTC/USDT (1h) ===", flush=True)
+print("Estratégia: EMA9 x EMA21 + Filtro Macro (EMA200) + RSI", flush=True)
+print(f"Saldo Carregado: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC\n", flush=True)
 
-def calculate_indicators(df):
-    df['ema_short'] = df['close'].ewm(span=short_window, adjust=False).mean()
-    df['ema_long'] = df['close'].ewm(span=long_window, adjust=False).mean()
-    df['ema_macro'] = df['close'].ewm(span=macro_window, adjust=False).mean()
+# Envia mensagem inicial no Telegram confirmando que o bot iniciou
+send_telegram_message(f"🚀 *Bot de Trading Iniciado!*\nPar: {symbol}\nEstratégia: EMA9 x EMA21 + EMA200 + RSI")
 
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
-    df['rsi'] = 100 - (100 / (1 + rs))
-    return df
+    return 100 - (100 / (1 + rs))
 
-def run_bot():
-    global state
-    print(f"=== BOT DE TRADING QUANTITATIVO ATIVO | {symbol} ({timeframe}) ===", flush=True)
-    print(f"Estratégia: EMA9 x EMA21 + Filtro Macro (EMA200) + RSI", flush=True)
-    print(f"Saldo Carregado: ${state['capital_usdt']:.2f} USDT | {state['crypto_balance']:.5f} BTC\n", flush=True)
+# ==========================================
+# LOOP PRINCIPAL
+# ==========================================
+while True:
+    try:
+        bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=250)
+        df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        
+        df['ema_short'] = df['close'].ewm(span=short_window, adjust=False).mean()
+        df['ema_long'] = df['close'].ewm(span=long_window, adjust=False).mean()
+        df['ema_macro'] = df['close'].ewm(span=macro_window, adjust=False).mean()
+        df['rsi'] = calculate_rsi(df['close'], period=rsi_period)
 
-    while True:
-        try:
-            df = fetch_candle_data()
-            df = calculate_indicators(df)
+        last_row = df.iloc[-1]
+        prev_row = df.iloc[-2]
 
-            last_row = df.iloc[-2]
-            prev_row = df.iloc[-3]
-            current_price = df.iloc[-1]['close']
+        price = last_row['close']
+        ema_s = last_row['ema_short']
+        ema_l = last_row['ema_long']
+        ema_m = last_row['ema_macro']
+        rsi = last_row['rsi']
 
-            now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-            print(f"[{now}] BTC: ${current_price:.2f} | EMA9: ${last_row['ema_short']:.2f} | EMA21: ${last_row['ema_long']:.2f} | EMA200: ${last_row['ema_macro']:.2f} | RSI: {last_row['rsi']:.1f}", flush=True)
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        print(f"[{now}] BTC: ${price:.2f} | EMA9: ${ema_s:.2f} | EMA21: ${ema_l:.2f} | EMA200: ${ema_m:.2f} | RSI: {rsi:.1f}", flush=True)
 
-            # Condição de COMPRA
-            if (prev_row['ema_short'] <= prev_row['ema_long']) and (last_row['ema_short'] > last_row['ema_long']):
-                if (current_price > last_row['ema_macro']) and (last_row['rsi'] < 60) and not state['in_position']:
-                    state['crypto_balance'] = state['capital_usdt'] / current_price
-                    state['entry_price'] = current_price
-                    state['capital_usdt'] = 0.0
-                    state['in_position'] = True
+        # Condição de Compra
+        if prev_row['ema_short'] <= prev_row['ema_long'] and ema_s > ema_l:
+            if price > ema_m and rsi < 70:
+                if state['position'] != 'BUY':
+                    msg = f"🟢 *SINAL DE COMPRA DECTETADO!*\nPreço: ${price:.2f}\nEMA9 superou EMA21 acima da EMA200 (RSI: {rsi:.1f})"
+                    print(msg, flush=True)
+                    send_telegram_message(msg)
+                    state['position'] = 'BUY'
                     save_state(state)
-                    print(f"\n[SINAL DE COMPRA EXECUTADO] Preço: ${state['entry_price']:.2f}", flush=True)
-                    print(f"Novo Saldo: {state['crypto_balance']:.5f} BTC\n", flush=True)
 
-            # Condição de VENDA
-            elif (prev_row['ema_short'] >= prev_row['ema_long']) and (last_row['ema_short'] < last_row['ema_long']):
-                if state['in_position']:
-                    state['capital_usdt'] = state['crypto_balance'] * current_price
-                    pnl = ((current_price - state['entry_price']) / state['entry_price']) * 100
-                    print(f"\n[SINAL DE VENDA EXECUTADO] Preço: ${current_price:.2f} | Resultado: {pnl:+.2f}%", flush=True)
-                    state['crypto_balance'] = 0.0
-                    state['in_position'] = False
-                    save_state(state)
-                    print(f"Novo Saldo: ${state['capital_usdt']:.2f} USDT\n", flush=True)
+        # Condição de Venda
+        elif prev_row['ema_short'] >= prev_row['ema_long'] and ema_s < ema_l:
+            if state['position'] != 'SELL':
+                msg = f"🔴 *SINAL DE VENDA DETECTADO!*\nPreço: ${price:.2f}\nEMA9 cruzou abaixo da EMA21 (RSI: {rsi:.1f})"
+                print(msg, flush=True)
+                send_telegram_message(msg)
+                state['position'] = 'SELL'
+                save_state(state)
 
-            time.sleep(60)
+    except Exception as e:
+        print(f"Erro na execução: {e}", flush=True)
 
-        except Exception as e:
-            print(f"Erro na execução: {e}", flush=True)
-            time.sleep(10)
-
-# Executa o bot
-run_bot()
+    time.sleep(60)
