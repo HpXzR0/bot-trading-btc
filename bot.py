@@ -23,7 +23,7 @@ import time
 import json
 from datetime import datetime
 
-exchange = ccxt.binance({'enableRateLimit': True})
+exchange = ccxt.kucoin({'enableRateLimit': True})
 symbol = 'BTC/USDT'
 timeframe = '1h'
 short_window = 9
