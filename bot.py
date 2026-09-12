@@ -65,10 +65,15 @@ rsi_period = 14
 STATE_FILE = 'estado_bot.json'
 
 def load_state():
+    default_state = {'position': None, 'usdt': 1000.0, 'btc': 0.0}
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
-    return {'position': None, 'usdt': 1000.0, 'btc': 0.0}
+        try:
+            with open(STATE_FILE, 'r') as f:
+                data = json.load(f)
+                default_state.update(data)
+        except Exception:
+            pass
+    return default_state
 
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
@@ -119,7 +124,7 @@ while True:
         if prev_row['ema_short'] <= prev_row['ema_long'] and ema_s > ema_l:
             if price > ema_m and rsi < 70:
                 if state['position'] != 'BUY':
-                    msg = f"🟢 *SINAL DE COMPRA DECTETADO!*\nPreço: ${price:.2f}\nEMA9 superou EMA21 acima da EMA200 (RSI: {rsi:.1f})"
+                    msg = f"🟢 *SINAL DE COMPRA DETECTADO!*\nPreço: ${price:.2f}\nEMA9 superou EMA21 acima da EMA200 (RSI: {rsi:.1f})"
                     print(msg, flush=True)
                     send_telegram_message(msg)
                     state['position'] = 'BUY'
