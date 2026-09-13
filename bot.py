@@ -37,7 +37,7 @@ class SimpleHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot de TESTE no Telegram rodando!")
+        self.wfile.write(b"Bot de Trading BTC rodando 24/7!")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -56,7 +56,7 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 # ==========================================
 exchange = ccxt.kucoin({'enableRateLimit': True})
 symbol = 'BTC/USDT'
-timeframe = '1m'  # Muda para 1 minuto para alta frequência
+timeframe = '1m'
 
 STATE_FILE = 'estado_bot.json'
 
@@ -77,11 +77,11 @@ def save_state(state):
 
 state = load_state()
 
-print("=== MODO DE TESTE DE NOTIFICAÇÕES (ALTA FREQUÊNCIA) ===", flush=True)
-send_telegram_message("🧪 *MODO DE TESTE ATIVADO*\nO bot enviará ordens frequentes a cada variação do candle de 1m.")
+print("=== MODO DE TESTE DE NOTIFICAÇÕES (ALTA FREQUÊNCIA COM PAPER TRADING) ===", flush=True)
+send_telegram_message(f"🧪 *MODO DE TESTE E PAPER TRADING ATIVADO*\nSaldo Inicial: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC")
 
 # ==========================================
-# LOOP PRINCIPAL DE TESTE (CHECAGEM A CADA 15 SEG)
+# LOOP PRINCIPAL
 # ==========================================
 while True:
     try:
@@ -93,27 +93,53 @@ while True:
         close_price = last_row['close']
 
         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        print(f"[{now}] TESTE 1m - Abertura: ${open_price:.2f} | Atual: ${close_price:.2f}", flush=True)
+        print(f"[{now}] TESTE 1m - Abertura: ${open_price:.2f} | Atual: ${close_price:.2f} | Banca: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC", flush=True)
 
-        # SE O CANDLE ATUAL ESTIVER VERDE (COMPRA)
+        # SE O CANDLE ATUAL ESTIVER VERDE (COMPRA FICTÍCIA)
         if close_price > open_price:
-            if state['position'] != 'BUY':
-                msg = f"🟢 *[TESTE] SINAL DE COMPRA!*\nPreço: ${close_price:.2f}\n(Candle de 1m fechando em alta)"
-                print(msg, flush=True)
-                send_telegram_message(msg)
+            if state['position'] != 'BUY' and state['usdt'] > 0:
+                # Executa a compra fictícia usando todo o saldo USDT disponível
+                btc_comprado = state['usdt'] / close_price
+                state['btc'] = btc_comprado
+                usdt_gasto = state['usdt']
+                state['usdt'] = 0.0
                 state['position'] = 'BUY'
                 save_state(state)
 
-        # SE O CANDLE ATUAL ESTIVER VERMELHO (VENDA)
-        elif close_price < open_price:
-            if state['position'] != 'SELL':
-                msg = f"🔴 *[TESTE] SINAL DE VENDA!*\nPreço: ${close_price:.2f}\n(Candle de 1m fechando em baixa)"
+                msg = (
+                    f"🟢 *ORDEM DE COMPRA EXECUTADA (SIMULAÇÃO)*\n"
+                    f"Preço BTC: ${close_price:.2f}\n"
+                    f"Valor Usado: ${usdt_gasto:.2f} USDT\n"
+                    f"Qtd Comprada: {btc_comprado:.5f} BTC\n"
+                    f"-------------------------------\n"
+                    f"💰 *Novo Saldo:* $0.00 USDT | {state['btc']:.5f} BTC"
+                )
                 print(msg, flush=True)
                 send_telegram_message(msg)
+
+        # SE O CANDLE ATUAL ESTIVER VERMELHO (VENDA FICTÍCIA)
+        elif close_price < open_price:
+            if state['position'] != 'SELL' and state['btc'] > 0:
+                # Executa a venda fictícia vendendo todo o BTC de volta para USDT
+                usdt_recebido = state['btc'] * close_price
+                btc_vendido = state['btc']
+                state['usdt'] = usdt_recebido
+                state['btc'] = 0.0
                 state['position'] = 'SELL'
                 save_state(state)
+
+                msg = (
+                    f"🔴 *ORDEM DE VENDA EXECUTADA (SIMULAÇÃO)*\n"
+                    f"Preço BTC: ${close_price:.2f}\n"
+                    f"Qtd Vendida: {btc_vendido:.5f} BTC\n"
+                    f"Valor Recebido: ${usdt_recebido:.2f} USDT\n"
+                    f"-------------------------------\n"
+                    f"💰 *Novo Saldo:* ${state['usdt']:.2f} USDT | 0.00000 BTC"
+                )
+                print(msg, flush=True)
+                send_telegram_message(msg)
 
     except Exception as e:
         print(f"Erro no teste: {e}", flush=True)
 
-    time.sleep(15)  # Checa a cada 15 segundos
+    time.sleep(15)
