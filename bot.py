@@ -1,13 +1,13 @@
 import os
+import time
+import requests
+import ccxt
+import pandas as pd
+import numpy as np
+from datetime import datetime
 import http.server
 import socketserver
 import threading
-import ccxt
-import pandas as pd
-import time
-import json
-import requests
-from datetime import datetime
 
 # ==========================================
 # CONFIGURAÇÕES DO TELEGRAM
@@ -15,131 +15,222 @@ from datetime import datetime
 TELEGRAM_TOKEN = "8630684870:AAHc6IdnwB4EiVs18oC_5NqREltWS-N1w88"
 TELEGRAM_CHAT_ID = "1402944096"
 
-def send_telegram_message(message):
-    """Envia uma mensagem de notificação para o Telegram."""
+def send_telegram(message):
+    """Envia mensagens formatadas para o seu Telegram."""
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message,
-                "parse_mode": "Markdown"
-            }
             requests.post(url, json=payload, timeout=10)
         except Exception as e:
-            print(f"Erro ao enviar mensagem no Telegram: {e}", flush=True)
+            print(f"Erro ao enviar Telegram: {e}", flush=True)
 
 # ==========================================
-# SERVIDOR HTTP DUMMY PARA O RENDER
+# DUMMY SERVER PARA MANTER O RENDER ALIVE
 # ==========================================
 class SimpleHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot de Trading BTC rodando 24/7!")
+        self.wfile.write(b"Bot V14 Live and Running!")
 
     def do_HEAD(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
         self.end_headers()
 
 def run_dummy_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = socketserver.TCPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+    port = int(os.environ.get("PORT", 8080))
+    with socketserver.TCPServer(("", port), SimpleHandler) as httpd:
+        print(f"Servidor Web ativo na porta {port}", flush=True)
+        httpd.serve_forever()
 
+# Inicia o servidor web em segundo plano
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
 # ==========================================
-# CONFIGURAÇÃO DE TESTE (1 MINUTO)
+# MOTOR ESTRATÉGICO V14 (PAPER TRADING)
 # ==========================================
-exchange = ccxt.kucoin({'enableRateLimit': True})
-symbol = 'BTC/USDT'
-timeframe = '1m'
+print("==================================================", flush=True)
+print("   INICIANDO BOT V14 (PAPER TRADING + TELEGRAM)   ", flush=True)
+print("==================================================", flush=True)
 
-STATE_FILE = 'estado_bot.json'
+send_telegram("🚀 <b>BOT QUANTITATIVO V14 INICIALIZADO NO RENDER</b>\n\n- <b>Estratégia:</b> Double Pyramid + Climax Exit\n- <b>Ativos:</b> BTC, ETH, SOL\n- <b>Banca Simulada:</b> $1.000,00 USDT\n- <b>Modo:</b> Paper Trading 24/7")
 
-def load_state():
-    default_state = {'position': None, 'usdt': 1000.0, 'btc': 0.0}
-    if os.path.exists(STATE_FILE):
+exchange = ccxt.binance({'enableRateLimit': True})
+symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+
+paper_capital = 1000.0
+fee = 0.001
+positions = {s: None for s in symbols}
+
+def fetch_data(symbol, timeframe, limit=300):
+    candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df.set_index('timestamp', inplace=True)
+    return df
+
+def process_signals():
+    global paper_capital
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{now_str}] Checando sinais no mercado...", flush=True)
+    
+    for symbol in symbols:
         try:
-            with open(STATE_FILE, 'r') as f:
-                data = json.load(f)
-                default_state.update(data)
-        except Exception:
-            pass
-    return default_state
+            df4 = fetch_data(symbol, '4h', limit=250)
+            df1 = fetch_data(symbol, '1h', limit=50)
+            
+            df4['ema21'] = df4['close'].ewm(span=21, adjust=False).mean()
+            df4['ema50'] = df4['close'].ewm(span=50, adjust=False).mean()
+            df4['ema200'] = df4['close'].ewm(span=200, adjust=False).mean()
+            df4['vol_sma20'] = df4['volume'].rolling(window=20).mean()
+            
+            df1['ema21'] = df1['close'].ewm(span=21, adjust=False).mean()
+            hl = df1['high'] - df1['low']
+            hc = np.abs(df1['high'] - df1['close'].shift())
+            lc = np.abs(df1['low'] - df1['close'].shift())
+            tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+            df1['atr'] = tr.rolling(window=14).mean()
+            
+            price = df1['close'].iloc[-1]
+            high = df1['high'].iloc[-1]
+            low = df1['low'].iloc[-1]
+            ema21_1h = df1['ema21'].iloc[-1]
+            atr1h = df1['atr'].iloc[-1]
+            
+            ema21_4h = df4['ema21'].iloc[-1]
+            ema50_4h = df4['ema50'].iloc[-1]
+            ema200_4h = df4['ema200'].iloc[-1]
+            vol_4h = df4['volume'].iloc[-1]
+            vol_sma_4h = df4['vol_sma20'].iloc[-1]
+            
+            pos = positions[symbol]
+            alloc_pct = 0.35
+            
+            # 1. ENTRADA LONG
+            if pos is None and (ema21_4h > ema50_4h > ema200_4h) and (low <= ema21_1h and price > ema21_1h):
+                alloc = paper_capital * alloc_pct * (1 - fee)
+                units = alloc / price
+                positions[symbol] = {
+                    'side': 'LONG', 'entry_price': price, 'units': units,
+                    'stop_loss': price - (3.0 * atr1h), 'highest_price': price,
+                    'pyramid_count': 0, 'alloc': alloc
+                }
+                paper_capital -= alloc
+                
+                msg = (f"🚀 <b>[V14 - COMPRA LONG]</b>\n\n"
+                       f"• <b>Ativo:</b> {symbol}\n"
+                       f"• <b>Preço de Entrada:</b> ${price:.2f}\n"
+                       f"• <b>Alocação:</b> ${alloc:.2f}\n"
+                       f"• <b>Stop Loss Inicial:</b> ${positions[symbol]['stop_loss']:.2f}\n"
+                       f"• <b>Banca Livre:</b> ${paper_capital:.2f}")
+                send_telegram(msg)
 
-def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=4)
+            # 2. ENTRADA SHORT
+            elif pos is None and (ema21_4h < ema50_4h < ema200_4h) and (high >= ema21_1h and price < ema21_1h):
+                alloc = paper_capital * alloc_pct * (1 - fee)
+                units = alloc / price
+                positions[symbol] = {
+                    'side': 'SHORT', 'entry_price': price, 'units': units,
+                    'stop_loss': price + (3.0 * atr1h), 'lowest_price': price,
+                    'pyramid_count': 0, 'alloc': alloc
+                }
+                paper_capital -= alloc
+                
+                msg = (f"🔻 <b>[V14 - VENDA SHORT]</b>\n\n"
+                       f"• <b>Ativo:</b> {symbol}\n"
+                       f"• <b>Preço de Entrada:</b> ${price:.2f}\n"
+                       f"• <b>Alocação:</b> ${alloc:.2f}\n"
+                       f"• <b>Stop Loss Inicial:</b> ${positions[symbol]['stop_loss']:.2f}\n"
+                       f"• <b>Banca Livre:</b> ${paper_capital:.2f}")
+                send_telegram(msg)
+                
+            # 3. GESTÃO E PIRAMIDAGEM DA POSIÇÃO
+            elif pos is not None:
+                side = pos['side']
+                entry = pos['entry_price']
+                units = pos['units']
+                is_climax = vol_4h > (3.5 * vol_sma_4h)
+                
+                if side == 'LONG':
+                    if high > pos['highest_price']: pos['highest_price'] = high
+                    
+                    if pos['pyramid_count'] == 0 and price >= entry + (2.8 * atr1h) and ema21_4h > ema50_4h:
+                        unrealized = (units * price) - (units * entry)
+                        if unrealized > 0:
+                            pos['units'] += (unrealized * 0.8) / price
+                            pos['entry_price'] = (entry + price) / 2
+                            pos['pyramid_count'] = 1
+                            msg = f"⬆️ <b>[V14 - PIRAMIDAGEM 1 LONG]</b>\n\n• <b>Ativo:</b> {symbol}\n• <b>Preço Atual:</b> ${price:.2f}\n• <b>Nova Mão (Reinvestimento)</b>"
+                            send_telegram(msg)
+                            
+                    elif pos['pyramid_count'] == 1 and price >= entry + (5.0 * atr1h) and ema21_4h > ema50_4h:
+                        unrealized = (units * price) - (units * entry)
+                        if unrealized > 0:
+                            pos['units'] += (unrealized * 0.6) / price
+                            pos['pyramid_count'] = 2
+                            msg = f"⬆️⬆️ <b>[V14 - PIRAMIDAGEM 2 LONG]</b>\n\n• <b>Ativo:</b> {symbol}\n• <b>Preço Atual:</b> ${price:.2f}\n• <b>Mão Máxima Atingida</b>"
+                            send_telegram(msg)
 
-state = load_state()
+                    if low <= pos['stop_loss'] or ema21_4h < ema50_4h or is_climax:
+                        exit_price = pos['stop_loss'] if low <= pos['stop_loss'] else price
+                        returned = (pos['units'] * exit_price) * (1 - fee)
+                        paper_capital += returned
+                        pnl = returned - pos['alloc']
+                        reason = "Clímax de Volume" if is_climax else ("Stop Loss" if low <= pos['stop_loss'] else "Inversão de Tendência 4h")
+                        
+                        msg = (f"✅ <b>[V14 - FECHAMENTO LONG]</b>\n\n"
+                               f"• <b>Ativo:</b> {symbol}\n"
+                               f"• <b>Motivo:</b> {reason}\n"
+                               f"• <b>PnL da Operação:</b> ${pnl:+.2f}\n"
+                               f"• <b>Banca Simulada Atual:</b> ${paper_capital:.2f}")
+                        send_telegram(msg)
+                        positions[symbol] = None
+                        
+                elif side == 'SHORT':
+                    if low < pos['lowest_price']: pos['lowest_price'] = low
+                    
+                    if pos['pyramid_count'] == 0 and price <= entry - (2.8 * atr1h) and ema21_4h < ema50_4h:
+                        unrealized = (units * entry) - (units * price)
+                        if unrealized > 0:
+                            pos['units'] += (unrealized * 0.8) / price
+                            pos['entry_price'] = (entry + price) / 2
+                            pos['pyramid_count'] = 1
+                            msg = f"⬇️ <b>[V14 - PIRAMIDAGEM 1 SHORT]</b>\n\n• <b>Ativo:</b> {symbol}\n• <b>Preço Atual:</b> ${price:.2f}\n• <b>Nova Mão (Reinvestimento)</b>"
+                            send_telegram(msg)
+                            
+                    elif pos['pyramid_count'] == 1 and price <= entry - (5.0 * atr1h) and ema21_4h < ema50_4h:
+                        unrealized = (units * entry) - (units * price)
+                        if unrealized > 0:
+                            pos['units'] += (unrealized * 0.6) / price
+                            pos['pyramid_count'] = 2
+                            msg = f"⬇️⬇️ <b>[V14 - PIRAMIDAGEM 2 SHORT]</b>\n\n• <b>Ativo:</b> {symbol}\n• <b>Preço Atual:</b> ${price:.2f}\n• <b>Mão Máxima Atingida</b>"
+                            send_telegram(msg)
 
-print("=== MODO DE TESTE DE NOTIFICAÇÕES (ALTA FREQUÊNCIA COM PAPER TRADING) ===", flush=True)
-send_telegram_message(f"🧪 *MODO DE TESTE E PAPER TRADING ATIVADO*\nSaldo Inicial: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC")
+                    if high >= pos['stop_loss'] or ema21_4h > ema50_4h or is_climax:
+                        exit_price = pos['stop_loss'] if high >= pos['stop_loss'] else price
+                        diff = entry - exit_price
+                        returned = (pos['alloc'] + (pos['units'] * diff)) * (1 - fee)
+                        paper_capital += returned
+                        pnl = returned - pos['alloc']
+                        reason = "Clímax de Volume" if is_climax else ("Stop Loss" if high >= pos['stop_loss'] else "Inversão de Tendência 4h")
+                        
+                        msg = (f"✅ <b>[V14 - FECHAMENTO SHORT]</b>\n\n"
+                               f"• <b>Ativo:</b> {symbol}\n"
+                               f"• <b>Motivo:</b> {reason}\n"
+                               f"• <b>PnL da Operação:</b> ${pnl:+.2f}\n"
+                               f"• <b>Banca Simulada Atual:</b> ${paper_capital:.2f}")
+                        send_telegram(msg)
+                        positions[symbol] = None
+                        
+        except Exception as e:
+            print(f"⚠️ Erro no loop de {symbol}: {e}", flush=True)
 
-# ==========================================
-# LOOP PRINCIPAL
-# ==========================================
+# Loop principal
 while True:
-    try:
-        bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
-        df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-        
-        last_row = df.iloc[-1]
-        open_price = last_row['open']
-        close_price = last_row['close']
-
-        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        print(f"[{now}] TESTE 1m - Abertura: ${open_price:.2f} | Atual: ${close_price:.2f} | Banca: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC", flush=True)
-
-        # SE O CANDLE ATUAL ESTIVER VERDE (COMPRA FICTÍCIA)
-        if close_price > open_price:
-            if state['position'] != 'BUY' and state['usdt'] > 0:
-                # Executa a compra fictícia usando todo o saldo USDT disponível
-                btc_comprado = state['usdt'] / close_price
-                state['btc'] = btc_comprado
-                usdt_gasto = state['usdt']
-                state['usdt'] = 0.0
-                state['position'] = 'BUY'
-                save_state(state)
-
-                msg = (
-                    f"🟢 *ORDEM DE COMPRA EXECUTADA (SIMULAÇÃO)*\n"
-                    f"Preço BTC: ${close_price:.2f}\n"
-                    f"Valor Usado: ${usdt_gasto:.2f} USDT\n"
-                    f"Qtd Comprada: {btc_comprado:.5f} BTC\n"
-                    f"-------------------------------\n"
-                    f"💰 *Novo Saldo:* $0.00 USDT | {state['btc']:.5f} BTC"
-                )
-                print(msg, flush=True)
-                send_telegram_message(msg)
-
-        # SE O CANDLE ATUAL ESTIVER VERMELHO (VENDA FICTÍCIA)
-        elif close_price < open_price:
-            if state['position'] != 'SELL' and state['btc'] > 0:
-                # Executa a venda fictícia vendendo todo o BTC de volta para USDT
-                usdt_recebido = state['btc'] * close_price
-                btc_vendido = state['btc']
-                state['usdt'] = usdt_recebido
-                state['btc'] = 0.0
-                state['position'] = 'SELL'
-                save_state(state)
-
-                msg = (
-                    f"🔴 *ORDEM DE VENDA EXECUTADA (SIMULAÇÃO)*\n"
-                    f"Preço BTC: ${close_price:.2f}\n"
-                    f"Qtd Vendida: {btc_vendido:.5f} BTC\n"
-                    f"Valor Recebido: ${usdt_recebido:.2f} USDT\n"
-                    f"-------------------------------\n"
-                    f"💰 *Novo Saldo:* ${state['usdt']:.2f} USDT | 0.00000 BTC"
-                )
-                print(msg, flush=True)
-                send_telegram_message(msg)
-
-    except Exception as e:
-        print(f"Erro no teste: {e}", flush=True)
-
-    time.sleep(15)
+    process_signals()
+    time.sleep(60)
