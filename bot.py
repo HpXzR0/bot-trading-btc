@@ -37,7 +37,7 @@ class SimpleHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot de Trading BTC rodando 24/7!")
+        self.wfile.write(b"Bot de TESTE no Telegram rodando!")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -52,15 +52,11 @@ def run_dummy_server():
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
 # ==========================================
-# CONFIGURAÇÃO DA EXCHANGE E INDICADORES
+# CONFIGURAÇÃO DE TESTE (1 MINUTO)
 # ==========================================
 exchange = ccxt.kucoin({'enableRateLimit': True})
 symbol = 'BTC/USDT'
-timeframe = '1h'
-short_window = 9
-long_window = 21
-macro_window = 200
-rsi_period = 14
+timeframe = '1m'  # Muda para 1 minuto para alta frequência
 
 STATE_FILE = 'estado_bot.json'
 
@@ -81,65 +77,43 @@ def save_state(state):
 
 state = load_state()
 
-print("=== BOT DE TRADING QUANTITATIVO ATIVO | BTC/USDT (1h) ===", flush=True)
-print("Estratégia: EMA9 x EMA21 + Filtro Macro (EMA200) + RSI", flush=True)
-print(f"Saldo Carregado: ${state['usdt']:.2f} USDT | {state['btc']:.5f} BTC\n", flush=True)
-
-# Envia mensagem inicial no Telegram confirmando que o bot iniciou
-send_telegram_message(f"🚀 *Bot de Trading Iniciado!*\nPar: {symbol}\nEstratégia: EMA9 x EMA21 + EMA200 + RSI")
-
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+print("=== MODO DE TESTE DE NOTIFICAÇÕES (ALTA FREQUÊNCIA) ===", flush=True)
+send_telegram_message("🧪 *MODO DE TESTE ATIVADO*\nO bot enviará ordens frequentes a cada variação do candle de 1m.")
 
 # ==========================================
-# LOOP PRINCIPAL
+# LOOP PRINCIPAL DE TESTE (CHECAGEM A CADA 15 SEG)
 # ==========================================
 while True:
     try:
-        bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=250)
+        bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
         df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
         
-        df['ema_short'] = df['close'].ewm(span=short_window, adjust=False).mean()
-        df['ema_long'] = df['close'].ewm(span=long_window, adjust=False).mean()
-        df['ema_macro'] = df['close'].ewm(span=macro_window, adjust=False).mean()
-        df['rsi'] = calculate_rsi(df['close'], period=rsi_period)
-
         last_row = df.iloc[-1]
-        prev_row = df.iloc[-2]
-
-        price = last_row['close']
-        ema_s = last_row['ema_short']
-        ema_l = last_row['ema_long']
-        ema_m = last_row['ema_macro']
-        rsi = last_row['rsi']
+        open_price = last_row['open']
+        close_price = last_row['close']
 
         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        print(f"[{now}] BTC: ${price:.2f} | EMA9: ${ema_s:.2f} | EMA21: ${ema_l:.2f} | EMA200: ${ema_m:.2f} | RSI: {rsi:.1f}", flush=True)
+        print(f"[{now}] TESTE 1m - Abertura: ${open_price:.2f} | Atual: ${close_price:.2f}", flush=True)
 
-        # Condição de Compra
-        if prev_row['ema_short'] <= prev_row['ema_long'] and ema_s > ema_l:
-            if price > ema_m and rsi < 70:
-                if state['position'] != 'BUY':
-                    msg = f"🟢 *SINAL DE COMPRA DETECTADO!*\nPreço: ${price:.2f}\nEMA9 superou EMA21 acima da EMA200 (RSI: {rsi:.1f})"
-                    print(msg, flush=True)
-                    send_telegram_message(msg)
-                    state['position'] = 'BUY'
-                    save_state(state)
+        # SE O CANDLE ATUAL ESTIVER VERDE (COMPRA)
+        if close_price > open_price:
+            if state['position'] != 'BUY':
+                msg = f"🟢 *[TESTE] SINAL DE COMPRA!*\nPreço: ${close_price:.2f}\n(Candle de 1m fechando em alta)"
+                print(msg, flush=True)
+                send_telegram_message(msg)
+                state['position'] = 'BUY'
+                save_state(state)
 
-        # Condição de Venda
-        elif prev_row['ema_short'] >= prev_row['ema_long'] and ema_s < ema_l:
+        # SE O CANDLE ATUAL ESTIVER VERMELHO (VENDA)
+        elif close_price < open_price:
             if state['position'] != 'SELL':
-                msg = f"🔴 *SINAL DE VENDA DETECTADO!*\nPreço: ${price:.2f}\nEMA9 cruzou abaixo da EMA21 (RSI: {rsi:.1f})"
+                msg = f"🔴 *[TESTE] SINAL DE VENDA!*\nPreço: ${close_price:.2f}\n(Candle de 1m fechando em baixa)"
                 print(msg, flush=True)
                 send_telegram_message(msg)
                 state['position'] = 'SELL'
                 save_state(state)
 
     except Exception as e:
-        print(f"Erro na execução: {e}", flush=True)
+        print(f"Erro no teste: {e}", flush=True)
 
-    time.sleep(60)
+    time.sleep(15)  # Checa a cada 15 segundos
