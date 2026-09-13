@@ -60,7 +60,7 @@ print("==================================================", flush=True)
 
 send_telegram("🚀 <b>BOT QUANTITATIVO V14 INICIALIZADO NO RENDER</b>\n\n- <b>Estratégia:</b> Double Pyramid + Climax Exit\n- <b>Ativos:</b> BTC, ETH, SOL\n- <b>Banca Simulada:</b> $1.000,00 USDT\n- <b>Modo:</b> Paper Trading 24/7")
 
-exchange = ccxt.binance({'enableRateLimit': True})
+exchange = ccxt.bybit({'enableRateLimit': True})
 symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
 paper_capital = 1000.0
