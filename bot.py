@@ -72,7 +72,7 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 # INICIALIZAÇÃO E EXCHANGE
 # ==========================================
 print("==================================================", flush=True)
-print("   INICIANDO BOT V14 (PAPER TRADING + PERSISTÊNCIA)", flush=True)
+print("   INICIANDO BOT V14 (PAPER TRADING + LOGS FULL)", flush=True)
 print("==================================================", flush=True)
 
 state = load_state()
@@ -80,7 +80,7 @@ exchange = ccxt.kraken({'enableRateLimit': True})
 symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 fee = 0.001
 
-send_telegram(f"🚀 <b>BOT QUANTITATIVO V14 ATIVO</b>\n\n• <b>Estratégia:</b> Double Pyramid + Climax Exit\n• <b>Banca Atual:</b> ${state['paper_capital']:.2f} USDT\n• <b>Status:</b> Monitorando candles a cada 60s")
+send_telegram(f"🚀 <b>BOT QUANTITATIVO V14 ATIVO NO RENDER</b>\n\n• <b>Estratégia:</b> Double Pyramid + Climax Exit\n• <b>Banca Simulada:</b> ${state['paper_capital']:.2f} USDT\n• <b>Modo:</b> Paper Trading 24/7 (Kraken API)")
 
 def fetch_data(symbol, timeframe, limit=300):
     candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -123,6 +123,10 @@ def process_signals():
             vol_4h = df4['volume'].iloc[-1]
             vol_sma_4h = df4['vol_sma20'].iloc[-1]
             
+            # EXIBIÇÃO EM TEMPO REAL NOS LOGS DO RENDER
+            now_str = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+            print(f"[{now_str}] {symbol} | Preço: ${price:.2f} | EMA21_4h: ${ema21_4h:.2f} | EMA50_4h: ${ema50_4h:.2f} | EMA200_4h: ${ema200_4h:.2f} | ATR_1h: ${atr1h:.2f}", flush=True)
+
             pos = positions[symbol]
             alloc_pct = 0.35
             
