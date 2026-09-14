@@ -79,18 +79,27 @@ print("   INICIANDO BOT V14 FIDEDIGNO (BINANCE 24/7)", flush=True)
 print("==================================================", flush=True)
 
 state = load_state()
-exchange = ccxt.binance({'enableRateLimit': True})
+exchange = ccxt.binance({
+    'enableRateLimit': True,
+    'options': {'adjustForTimeDifference': True}
+})
 symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 fee = 0.001
 
 send_telegram(f"🚀 <b>BOT QUANTITATIVO V14 ATIVO NO RENDER (FRANKFURT)</b>\n\n• <b>Estratégia:</b> Double Pyramid + Climax Exit\n• <b>Banca Simulada:</b> ${state['paper_capital']:.2f} USDT\n• <b>Modo:</b> Paper Trading 24/7")
 
 def fetch_data(symbol, timeframe, limit=300):
-    candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df.set_index('timestamp', inplace=True)
-    return df
+    try:
+        candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
+        return df
+    except Exception as e:
+        if '429' in str(e) or '-1003' in str(e):
+            print(f"[{symbol}] Rate limit atingido (429). Aguardando 60 segundos de castigo...", flush=True)
+            time.sleep(60)
+        raise e
 
 def process_signals():
     global state
@@ -127,7 +136,7 @@ def process_signals():
             # --- TRAVA TEMPORAL ---
             candle_fechado_time = str(df1.index[-2])
             if state["last_candle"].get(symbol) == candle_fechado_time:
-                time.sleep(3)
+                time.sleep(5)
                 continue
             
             state["last_candle"][symbol] = candle_fechado_time
@@ -274,12 +283,12 @@ def process_signals():
                         print(f"\n==================================================\n [FECHAMENTO SHORT] {symbol} | PnL: ${pnl:+.2f}\n==================================================", flush=True)
                         send_telegram(f"💰 <b>[FECHAMENTO SHORT]</b> {symbol}\n• <b>Motivo:</b> {reason}\n• <b>PnL:</b> ${pnl:+.2f}\n• <b>Novo Saldo:</b> ${paper_capital:.2f}")
             
-            # Pausa de segurança anti-flood da Binance
-            time.sleep(3)
+            # Pausa de 10 segundos entre cada moeda para zerar o peso na Binance
+            time.sleep(10)
                         
         except Exception as e:
             print(f"Erro em {symbol}: {e}", flush=True)
-            time.sleep(3)
+            time.sleep(10)
 
 while True:
     process_signals()
