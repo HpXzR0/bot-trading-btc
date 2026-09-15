@@ -179,7 +179,11 @@ def process_signals():
 
     for symbol in symbols:
         try:
-            df4 = fetch_data(symbol, '4h', limit=250)
+            # CORREÇÃO: limit aumentado de 250 para 1000. Com 250 velas de
+            # 4H, a EMA200 recalculada do zero a cada ciclo ainda carrega
+            # ~8% de viés do ponto de partida do recorte (não convergiu).
+            # Com 1000, esse viés cai para praticamente zero.
+            df4 = fetch_data(symbol, '4h', limit=1000)
             df1 = fetch_data(symbol, '1h', limit=200)
 
             df4['ema21'] = df4['close'].ewm(span=21, adjust=False).mean()
