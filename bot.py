@@ -188,7 +188,13 @@ def process_signals():
 
             df4['ema21'] = df4['close'].ewm(span=21, adjust=False).mean()
             df4['ema50'] = df4['close'].ewm(span=50, adjust=False).mean()
-            df4['ema200'] = df4['close'].ewm(span=200, adjust=False).mean()
+            # CORREÇÃO DE ESTRATÉGIA (não é bug): EMA200 substituída por
+            # EMA100 no filtro de tendência. Teste comparativo de 5 anos
+            # mostrou um pico genuíno de robustez em 100 (melhor retorno,
+            # menor drawdown, maior Sharpe e Sortino que 65/75/150/200),
+            # não uma tendência monotônica de "quanto menor, melhor" —
+            # padrão consistente com um efeito real, não overfitting.
+            df4['ema_trend'] = df4['close'].ewm(span=100, adjust=False).mean()
             df4['vol_sma20'] = df4['volume'].rolling(window=20).mean()
 
             df1['ema21'] = df1['close'].ewm(span=21, adjust=False).mean()
@@ -202,11 +208,11 @@ def process_signals():
             live_price = df1['close'].iloc[-1]
             live_ema21_4h = df4['ema21'].iloc[-1]
             live_ema50_4h = df4['ema50'].iloc[-1]
-            live_ema200_4h = df4['ema200'].iloc[-1]
+            live_ema_trend_4h = df4['ema_trend'].iloc[-1]
             live_atr = df1['atr'].iloc[-1]
 
             now_str = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-            print(f"[{now_str}] {symbol} | Preço Atual: ${live_price:.2f} | EMA21_4h: ${live_ema21_4h:.2f} | EMA50_4h: ${live_ema50_4h:.2f} | EMA200_4h: ${live_ema200_4h:.2f} | ATR_1h: ${live_atr:.2f}", flush=True)
+            print(f"[{now_str}] {symbol} | Preço Atual: ${live_price:.2f} | EMA21_4h: ${live_ema21_4h:.2f} | EMA50_4h: ${live_ema50_4h:.2f} | EMA_trend_4h(100): ${live_ema_trend_4h:.2f} | ATR_1h: ${live_atr:.2f}", flush=True)
 
             # --- TRAVA TEMPORAL ---
             candle_fechado_time = str(df1.index[-2])
@@ -225,7 +231,7 @@ def process_signals():
 
             ema21_4h = df4['ema21'].iloc[-2]
             ema50_4h = df4['ema50'].iloc[-2]
-            ema200_4h = df4['ema200'].iloc[-2]
+            ema_trend_4h = df4['ema_trend'].iloc[-2]
             vol_4h = df4['volume'].iloc[-2]
             vol_sma_4h = df4['vol_sma20'].iloc[-2]
 
@@ -236,7 +242,7 @@ def process_signals():
             # backtest de 5 anos que mostrou Long-Only superior e mais
             # robusto no crash de 2022)
             if pos is None:
-                if ema21_4h > ema50_4h > ema200_4h and low <= ema21_1h and price > ema21_1h:
+                if ema21_4h > ema50_4h > ema_trend_4h and low <= ema21_1h and price > ema21_1h:
                     # CORREÇÃO: debita o valor BRUTO alocado do capital,
                     # não o líquido pós-taxa (mesma correção do backtest).
                     gross_alloc = paper_capital * alloc_pct
